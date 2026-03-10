@@ -1,6 +1,6 @@
 module github.com/morningli/mbuffer
 
-go 1.25.5
+go 1.19
 
 require github.com/stretchr/testify v1.11.1
 
