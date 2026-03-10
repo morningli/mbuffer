@@ -1,7 +1,6 @@
 package mbuffer
 
 import (
-	"bufio"
 	"errors"
 	"io"
 	"sync"
