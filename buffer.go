@@ -453,7 +453,11 @@ func (b *Buffer) Free() {
 	for i := range b.big {
 		putBigChunk(b.big[i])
 	}
-	b.big = b.big[:0]
+	if cap(b.big) == initBigPageCount {
+		b.big = b.big[:0]
+	} else {
+		b.big = make([]*Chunk, 0, initBigPageCount)
+	}
 	b.length = 0
 	b.firstPageOffset = 0
 	b.hasSmall = true
