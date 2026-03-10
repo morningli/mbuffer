@@ -52,6 +52,16 @@ func putSmallChunk(c *SmallChunk) {
 	}
 }
 
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return &Buffer{
+			hasSmall: true,
+			capacity: 0, //
+			big:      make([]*Chunk, 0, initBigPageCount),
+		}
+	},
+}
+
 // Buffer 是基于固定大小页的可增长字节缓冲区，支持零拷贝 Slice。
 type Buffer struct {
 	// length 逻辑上的总有效数据长度
@@ -71,11 +81,7 @@ type Buffer struct {
 
 // NewBuffer 创建一个空 Buffer。
 func NewBuffer() *Buffer {
-	return &Buffer{
-		hasSmall: true,
-		capacity: 0, //
-		big:      make([]*Chunk, 0, initBigPageCount),
-	}
+	return bufferPool.Get().(*Buffer)
 }
 
 //go:inline Slice 模拟 Go 原生切片操作 b[n:m],n: 起始位移 (inclusive),m: 结束位移 (exclusive)
@@ -379,7 +385,7 @@ func (b *Buffer) Discard(n int) {
 		return
 	}
 	if n >= b.length {
-		b.Free()
+		b.Clear()
 		//b.version++
 		return
 	}
@@ -447,7 +453,28 @@ func (b *Buffer) Free() {
 	for i := range b.big {
 		putBigChunk(b.big[i])
 	}
-	b.big = nil
+	b.big = b.big[:0]
+	b.length = 0
+	b.firstPageOffset = 0
+	b.hasSmall = true
+	b.capacity = 0
+	b.version = 0
+	bufferPool.Put(b)
+}
+
+func (b *Buffer) Clear() {
+	// 注意：在 Split 场景下，多个 Buffer 可能引用同一个 Chunk
+	// 这里简单的 Put 回池子仅适用于你确定该 Buffer 独占这些 Chunk 的情况
+	// 如果需要严谨，需要引入引用计数。但在 gnet 解析完即销毁的场景，
+	// 通常在处理完最后一个 Split 块后统一释放即可。
+	if b.hasSmall && b.small != nil {
+		putSmallChunk(b.small)
+	}
+	b.small = nil
+	for i := range b.big {
+		putBigChunk(b.big[i])
+	}
+	b.big = b.big[:0]
 	b.length = 0
 	b.firstPageOffset = 0
 	b.hasSmall = true
@@ -665,7 +692,7 @@ func (b *Buffer) Truncate(n int) {
 		return
 	}
 	if n <= 0 {
-		b.Free()
+		b.Clear()
 		//b.version++
 		return
 	}

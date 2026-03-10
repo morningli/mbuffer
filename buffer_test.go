@@ -865,7 +865,7 @@ func TestBuffer_Discard(t *testing.T) {
 		require.Equal(t, 0, b.Len())
 		require.True(t, b.hasSmall, "Reset 后应恢复 hasSmall")
 		// 如果你的 Reset 实现是将 big 置为 nil：
-		require.Nil(t, b.big)
+		require.Empty(t, b.big)
 		require.Equal(t, 0, b.capacity)
 	})
 }
@@ -1269,8 +1269,7 @@ func TestBuffer_Truncate(t *testing.T) {
 			t.Error("长度应为 0")
 		}
 		// 验证是否触发了 Free (物理页应全部清理)
-		if b.small != nil || b.big != nil {
-			t.Error("物理资源未完全释放")
-		}
+		require.Nil(t, b.small)
+		require.Empty(t, b.big)
 	})
 }
