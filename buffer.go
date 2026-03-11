@@ -385,7 +385,7 @@ func (b *Buffer) Discard(n int) {
 		return
 	}
 	if n >= b.length {
-		b.Clear()
+		b.Reset()
 		//b.version++
 		return
 	}
@@ -466,7 +466,7 @@ func (b *Buffer) Free() {
 	bufferPool.Put(b)
 }
 
-func (b *Buffer) Clear() {
+func (b *Buffer) Reset() {
 	// 注意：在 Split 场景下，多个 Buffer 可能引用同一个 Chunk
 	// 这里简单的 Put 回池子仅适用于你确定该 Buffer 独占这些 Chunk 的情况
 	// 如果需要严谨，需要引入引用计数。但在 gnet 解析完即销毁的场景，
@@ -677,13 +677,6 @@ func (b *Buffer) WriteTo(wr io.Writer) (int64, error) {
 	return total, nil
 }
 
-func (b *Buffer) Reset() {
-	b.length = 0
-	// 不要清空 b.big，让已申请的 Chunk 留在切片里供下一轮 Reserve 直接使用
-	// 这样 Reserve(len) 内部就会直接返回 b.big[0][0:len]，实现真正的 0 分配
-	b.version++
-}
-
 func (b *Buffer) IndexByte(c byte, start int) int {
 	return indexByteGeneric(b.hasSmall, b.small, b.big, b.firstPageOffset, b.length, c, start)
 }
@@ -696,7 +689,7 @@ func (b *Buffer) Truncate(n int) {
 		return
 	}
 	if n <= 0 {
-		b.Clear()
+		b.Reset()
 		//b.version++
 		return
 	}
