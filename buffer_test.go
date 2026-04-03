@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"sync"
 	"testing"
@@ -787,6 +788,8 @@ func TestBuffer_ShiftTo(t *testing.T) {
 	wr.Write(p3) // 总长度: 256 + 4096 + 500 = 4852
 
 	t.Run("ShiftSmall", func(t *testing.T) {
+		c := b.capacity
+
 		target := NewBuffer()
 		b.ShiftTo(100, target) // 从头部切出 100B (还在 Small 区域)
 
@@ -797,9 +800,13 @@ func TestBuffer_ShiftTo(t *testing.T) {
 		require.Equal(t, 4752, b.Len())
 		require.Equal(t, 100, b.firstPageOffset)
 		require.True(t, b.hasSmall)
+		require.Equal(t, 256, target.capacity)
+		require.Equal(t, c, b.capacity)
 	})
 
 	t.Run("ShiftToBoundary", func(t *testing.T) {
+		c := b.capacity
+
 		target := NewBuffer()
 		// 此时 b 剩余 4752，前 156B 在 Small，后面是大页
 		b.ShiftTo(156, target) // 刚好切完 Small 剩余部分
@@ -811,9 +818,13 @@ func TestBuffer_ShiftTo(t *testing.T) {
 		require.False(t, b.hasSmall) // b 应该不再持有 small
 		require.Equal(t, 0, b.firstPageOffset)
 		require.Equal(t, byte('b'), b.Bytes()[0])
+		require.Equal(t, 256, target.capacity)
+		require.Equal(t, c-256, b.capacity)
 	})
 
 	t.Run("ShiftInBigPage", func(t *testing.T) {
+		c := b.capacity
+
 		target := NewBuffer()
 		// 此时 b 起始是大页，长度 4596 (1 Big + 500B)
 		b.ShiftTo(1000, target) // 在第一个大页中间切分
@@ -823,6 +834,9 @@ func TestBuffer_ShiftTo(t *testing.T) {
 		require.Equal(t, 3596, b.Len())
 		require.Equal(t, 1000, b.firstPageOffset)
 		require.Equal(t, byte('b'), b.Bytes()[0])
+
+		require.Equal(t, 4096, target.capacity)
+		require.Equal(t, c, b.capacity)
 	})
 }
 
@@ -1272,4 +1286,31 @@ func TestBuffer_Truncate(t *testing.T) {
 		require.Nil(t, b.small)
 		require.Empty(t, b.big)
 	})
+}
+
+func GenerateFastBytes(size int) []byte {
+	b := make([]byte, size)
+	rand.Read(b) // Go 1.6+ 支持直接 Read 填充
+	return b
+}
+
+func TestBufferWriter_CopyBufferedTo(t *testing.T) {
+	raw := GenerateFastBytes(ChunkSize * 10)
+	for i := 0; i < 100; i++ {
+		big := bytes.NewBuffer(raw)
+		rd := bufio.NewReader(big)
+		buff := NewBuffer()
+		wr := buff.NewWriter()
+		//err := wr.WriteByte(' ')
+		//require.NoError(t, err)
+		for {
+			_, err := wr.CopyBufferedTo(rd)
+			if err == io.EOF {
+				break
+			}
+			require.NoError(t, err)
+		}
+		require.Equal(t, raw, buff.Bytes())
+		buff.Free()
+	}
 }

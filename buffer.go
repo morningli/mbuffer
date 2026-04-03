@@ -302,7 +302,7 @@ func (b *Buffer) ShiftTo(n int, newBuf *Buffer) {
 			}
 			b.length = newLen
 			// 更新 newBuf.capacity: 计算方式同 ensureCapacity
-			b.capacity = calculateCapacity(newBuf.hasSmall, len(newBuf.big))
+			b.capacity = calculateCapacity(b.hasSmall, len(b.big))
 			b.version++
 			return
 		}
@@ -321,7 +321,7 @@ func (b *Buffer) ShiftTo(n int, newBuf *Buffer) {
 			b.hasSmall = false
 			b.firstPageOffset = 0
 			b.length = newLen
-			b.capacity = calculateCapacity(false, len(newBuf.big))
+			b.capacity = calculateCapacity(false, len(b.big))
 			b.version++
 			return
 		}
@@ -352,7 +352,7 @@ func (b *Buffer) ShiftTo(n int, newBuf *Buffer) {
 		b.big = originalBig[splitBigIdx:]
 		b.firstPageOffset = 0
 		b.length = newLen
-		b.capacity = len(newBuf.big) * ChunkSize
+		b.capacity = calculateCapacity(false, len(b.big))
 		b.version++
 		return
 	}
@@ -374,7 +374,7 @@ func (b *Buffer) ShiftTo(n int, newBuf *Buffer) {
 		b.big = newBigFirst
 	}
 	b.length = newLen
-	b.capacity = calculateCapacity(newBuf.hasSmall, len(newBuf.big))
+	b.capacity = calculateCapacity(b.hasSmall, len(b.big))
 	b.version++
 	return
 }
@@ -423,7 +423,7 @@ func (b *Buffer) Discard(n int) {
 		b.hasSmall = false
 		b.firstPageOffset = innerOff
 		b.big = origBig[splitBigIdx:]
-		b.capacity = len(b.big) * ChunkSize
+		b.capacity = calculateCapacity(b.hasSmall, len(b.big))
 	} else {
 		// --- 情況 C: 本來就在 Big 区域 ---
 		splitBigIdx := splitPos >> bigShift
@@ -435,7 +435,7 @@ func (b *Buffer) Discard(n int) {
 
 		b.firstPageOffset = innerOff
 		b.big = origBig[splitBigIdx:]
-		b.capacity = len(b.big) * ChunkSize
+		b.capacity = calculateCapacity(b.hasSmall, len(b.big))
 	}
 	b.version++
 }
