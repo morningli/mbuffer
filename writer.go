@@ -2,7 +2,9 @@ package mbuffer
 
 import (
 	"bufio"
+	"fmt"
 	"io"
+	"strings"
 )
 
 type BufferWriter struct {
@@ -259,4 +261,19 @@ func (w *BufferWriter) copyBufferedSlow(rd *bufio.Reader) (int64, error) {
 		}
 	}
 	return total, nil
+}
+
+func (w *BufferWriter) String() string {
+	buff := strings.Builder{}
+	buff.WriteString("activePage:")
+	buff.WriteString(fmt.Sprintf("[]byte(%d)", len(w.activePage)))
+	buff.WriteString(" activeOff:")
+	buff.WriteString(fmt.Sprintf("%d", w.activeOff))
+	buff.WriteString(" pageMax:")
+	buff.WriteString(fmt.Sprintf("%d", w.pageMax))
+	buff.WriteString(" pageIdx:")
+	buff.WriteString(fmt.Sprintf("%d", w.pageIdx))
+	buff.WriteString(" version:")
+	buff.WriteString(fmt.Sprintf("%d", w.version))
+	return buff.String()
 }

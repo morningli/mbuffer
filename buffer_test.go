@@ -866,6 +866,27 @@ func TestBuffer_ShiftTo(t *testing.T) {
 		require.Equal(t, 744, b.firstPageOffset)
 		require.Equal(t, src[1000:], b.Bytes())
 	})
+
+	t.Run("ShiftInBig-2", func(t *testing.T) {
+		b := initBuffer(t, false, 1, 24319)
+		c := b.capacity
+		src := b.Bytes()
+
+		target := NewBuffer()
+		b.ShiftTo(4045, target) // 在第一个大页中间切分
+
+		require.Equal(t, 4045, target.Len())
+		require.False(t, target.hasSmall)
+		require.Equal(t, 4096, target.capacity)
+		require.Equal(t, 1, target.firstPageOffset)
+		require.Equal(t, src[:4045], target.Bytes())
+
+		require.Equal(t, 20274, b.Len())
+		require.True(t, b.hasSmall)
+		require.Equal(t, c-4096+256, b.capacity)
+		require.Equal(t, 206, b.firstPageOffset)
+		require.Equal(t, src[4045:], b.Bytes())
+	})
 }
 
 func TestBuffer_Discard(t *testing.T) {
