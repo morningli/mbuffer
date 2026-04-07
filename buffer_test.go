@@ -765,65 +765,68 @@ func BenchmarkPoolContention(b *testing.B) {
 	})
 }
 
-func TestBuffer_ShiftTo(t *testing.T) {
+func initBuffer(t *testing.T, hashSmall bool, firstOff, len int) *Buffer {
 	// 初始化 Buffer 并写入跨页数据 (Small + 1.5 Big Chunks)
 	b := NewBuffer()
+	b.hasSmall = hashSmall
+	b.firstPageOffset = firstOff
 	wr := b.NewWriter()
-
-	p1 := make([]byte, SmallChunkSize) // 256B
-	p2 := make([]byte, ChunkSize)      // 4096B
-	p3 := make([]byte, 500)            // 500B
-	for i := range p1 {
-		p1[i] = 'a'
+	if hashSmall && len > SmallChunkSize {
+		wr.Write(GenerateFastBytes(SmallChunkSize))
+		len -= SmallChunkSize
 	}
-	for i := range p2 {
-		p2[i] = 'b'
-	}
-	for i := range p3 {
-		p3[i] = 'c'
-	}
+	wr.Write(GenerateFastBytes(len))
+	return b
+}
 
-	wr.Write(p1)
-	wr.Write(p2)
-	wr.Write(p3) // 总长度: 256 + 4096 + 500 = 4852
-
+func TestBuffer_ShiftTo(t *testing.T) {
 	t.Run("ShiftSmall", func(t *testing.T) {
+		b := initBuffer(t, true, 0, 4852)
 		c := b.capacity
+		src := b.Bytes()
 
 		target := NewBuffer()
 		b.ShiftTo(100, target) // 从头部切出 100B (还在 Small 区域)
 
 		require.Equal(t, 100, target.Len())
 		require.True(t, target.hasSmall)
-		require.Equal(t, byte('a'), target.Bytes()[0])
+		require.Equal(t, 256, target.capacity)
+		require.Equal(t, 0, target.firstPageOffset)
+		require.Equal(t, src[:100], target.Bytes())
 
 		require.Equal(t, 4752, b.Len())
-		require.Equal(t, 100, b.firstPageOffset)
 		require.True(t, b.hasSmall)
-		require.Equal(t, 256, target.capacity)
 		require.Equal(t, c, b.capacity)
+		require.Equal(t, 100, b.firstPageOffset)
+		require.Equal(t, src[100:], b.Bytes())
 	})
 
 	t.Run("ShiftToBoundary", func(t *testing.T) {
+		b := initBuffer(t, true, 100, 4752)
 		c := b.capacity
+		src := b.Bytes()
 
 		target := NewBuffer()
 		// 此时 b 剩余 4752，前 156B 在 Small，后面是大页
 		b.ShiftTo(156, target) // 刚好切完 Small 剩余部分
 
 		require.Equal(t, 156, target.Len())
-		require.Equal(t, byte('a'), target.Bytes()[0])
+		require.True(t, target.hasSmall)
+		require.Equal(t, 256, target.capacity)
+		require.Equal(t, 100, target.firstPageOffset)
+		require.Equal(t, src[:156], target.Bytes())
 
 		require.Equal(t, 4596, b.Len())
-		require.False(t, b.hasSmall) // b 应该不再持有 small
-		require.Equal(t, 0, b.firstPageOffset)
-		require.Equal(t, byte('b'), b.Bytes()[0])
-		require.Equal(t, 256, target.capacity)
+		require.False(t, b.hasSmall)
 		require.Equal(t, c-256, b.capacity)
+		require.Equal(t, 0, b.firstPageOffset)
+		require.Equal(t, src[156:], b.Bytes())
 	})
 
 	t.Run("ShiftInBigPage", func(t *testing.T) {
+		b := initBuffer(t, false, 0, 4596)
 		c := b.capacity
+		src := b.Bytes()
 
 		target := NewBuffer()
 		// 此时 b 起始是大页，长度 4596 (1 Big + 500B)
@@ -831,12 +834,37 @@ func TestBuffer_ShiftTo(t *testing.T) {
 
 		require.Equal(t, 1000, target.Len())
 		require.False(t, target.hasSmall)
-		require.Equal(t, 3596, b.Len())
-		require.Equal(t, 1000, b.firstPageOffset)
-		require.Equal(t, byte('b'), b.Bytes()[0])
-
 		require.Equal(t, 4096, target.capacity)
+		require.Equal(t, 0, target.firstPageOffset)
+		require.Equal(t, src[:1000], target.Bytes())
+
+		require.Equal(t, 3596, b.Len())
+		require.False(t, b.hasSmall)
 		require.Equal(t, c, b.capacity)
+		require.Equal(t, 1000, b.firstPageOffset)
+		require.Equal(t, src[1000:], b.Bytes())
+	})
+
+	t.Run("ShiftInBigWithSmall", func(t *testing.T) {
+		b := initBuffer(t, true, 0, 4596)
+		c := b.capacity
+		src := b.Bytes()
+
+		target := NewBuffer()
+		// 此时 b 起始是大页，长度 4596 (1 Big + 500B)
+		b.ShiftTo(1000, target) // 在第一个大页中间切分
+
+		require.Equal(t, 1000, target.Len())
+		require.True(t, target.hasSmall)
+		require.Equal(t, 4352, target.capacity)
+		require.Equal(t, 0, target.firstPageOffset)
+		require.Equal(t, src[:1000], target.Bytes())
+
+		require.Equal(t, 3596, b.Len())
+		require.False(t, b.hasSmall)
+		require.Equal(t, c-256, b.capacity)
+		require.Equal(t, 744, b.firstPageOffset)
+		require.Equal(t, src[1000:], b.Bytes())
 	})
 }
 
