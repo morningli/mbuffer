@@ -55,6 +55,10 @@ func (w *BufferWriter) Sync() {
 		w.activePage = w.b.big[w.pageIdx][:]
 		w.activeOff = bigPos & bigMask
 		w.pageMax = ChunkSize
+	} else {
+		w.activePage = nil
+		w.activeOff = 0
+		w.pageMax = 0
 	}
 	w.version = w.b.version
 }
@@ -64,6 +68,7 @@ func (w *BufferWriter) WriteByte(c byte) error {
 	if w.version != w.b.version {
 		panic("writer is invalid")
 	}
+	fmt.Printf("wr:%s,left:%d,w:%d\n", w, w.pageMax-w.activeOff, 1)
 	if w.activeOff < w.pageMax {
 		w.activePage[w.activeOff] = c
 		w.activeOff++
@@ -97,27 +102,22 @@ func (w *BufferWriter) Write(p []byte) (int, error) {
 // 它依赖入口处的一次性空间预留，确保循环内的物理页跳转绝对安全。
 func (w *BufferWriter) writeSlow(p []byte) (int, error) {
 	total := len(p)
-	// 1. 唯一的一次資源預留點：確保 hasSmall 已切換且 b.big 已補齊
 	w.b.ensureCapacity(total)
+	w.Sync()
 
 	srcOff := 0
 	for srcOff < total {
-		// 2. 磁頭驅動：如果當前沒有頁（nil）或者當前頁寫滿了
-		// 無需任何額外判斷，直接調用 advancePage 挪到下一個物理坑位
-		if w.activePage == nil || w.activeOff >= w.pageMax {
+		if w.activeOff >= w.pageMax {
 			w.advancePage()
 		}
 
-		// 3. 計算當前物理頁剩餘可用空間
 		todo := w.pageMax - w.activeOff
 		if rem := total - srcOff; rem < todo {
 			todo = rem
 		}
 
-		// 4. 寄存器級搬運
 		copy(w.activePage[w.activeOff:], p[srcOff:srcOff+todo])
 
-		// 5. 更新狀態
 		w.activeOff += todo
 		w.b.length += todo
 		srcOff += todo
@@ -127,37 +127,8 @@ func (w *BufferWriter) writeSlow(p []byte) (int, error) {
 
 // advancePage 仅负责物理位置跳转。
 // 所有的资源预留、模式切换（hasSmall = false）均已在入口处的 ensureCapacity 完成。
+// go:inline
 func (w *BufferWriter) advancePage() {
-	// 场景 1：磁头尚未着陆（首次写入）
-	if w.activePage == nil {
-		if w.b.hasSmall {
-			// ensureCapacity 已保证 small 存在并分配好了
-			w.activePage = w.b.small[:]
-			w.activeOff = w.b.length + w.b.firstPageOffset
-			w.pageMax = SmallChunkSize
-			w.pageIdx = -1
-			return
-		}
-		// ensureCapacity 已判定为大包模式，且保证 big 数组已分配
-		w.activePage = w.b.big[0][:]
-		w.activeOff = 0
-		w.pageMax = ChunkSize
-		w.pageIdx = 0
-		return
-	}
-
-	// 场景 2：磁头顺序翻页
-	// 如果当前在 small (-1)，说明接下来要跨越到第一个 big (0)
-	if w.pageIdx == -1 {
-		w.activePage = w.b.big[0][:]
-		w.activeOff = 0
-		w.pageMax = ChunkSize
-		w.pageIdx = 0
-		return
-	}
-
-	// 场景 3：在 Big 数组中无脑递增索引
-	// ensureCapacity 保证了 w.b.big[w.pageIdx+1] 必定存在
 	w.pageIdx++
 	w.activePage = w.b.big[w.pageIdx][:]
 	w.activeOff = 0
@@ -171,12 +142,13 @@ func (w *BufferWriter) CopyN(rd io.Reader, n int) error {
 	}
 	// 1. 唯一的一次物理决策和资源预留点
 	w.b.ensureCapacity(n)
+	w.Sync()
 
 	read := 0
 	for read < n {
 		// 2. 磁头驱动：如果没页或写满了，直接挪到下一页
 		// 此时 w.b.big[w.pageIdx+1] 已经由 ensureCapacity 保证存在
-		if w.activePage == nil || w.activeOff >= w.pageMax {
+		if w.activeOff >= w.pageMax {
 			w.advancePage()
 		}
 
@@ -223,9 +195,10 @@ func (w *BufferWriter) copyBufferedSlow(rd *bufio.Reader) (int64, error) {
 	for {
 		// 1. 至少预留 1 字节空间触发物理页准备
 		w.b.ensureCapacity(1)
+		w.Sync()
 
 		// 2. 磁头驱动
-		if w.activePage == nil || w.activeOff >= w.pageMax {
+		if w.activeOff >= w.pageMax {
 			w.advancePage()
 		}
 
