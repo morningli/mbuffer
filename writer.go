@@ -68,7 +68,6 @@ func (w *BufferWriter) WriteByte(c byte) error {
 	if w.version != w.b.version {
 		panic("writer is invalid")
 	}
-	fmt.Printf("wr:%s,left:%d,w:%d\n", w, w.pageMax-w.activeOff, 1)
 	if w.activeOff < w.pageMax {
 		w.activePage[w.activeOff] = c
 		w.activeOff++
